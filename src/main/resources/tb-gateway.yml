@@ -16,23 +16,37 @@
 
 gateway:
   reporting:
+    # 统计报表间隔，单位为毫秒，报告连接的设备数量和发送的消息
     interval: 60000
   persistence:
+    # “文件”或“内存”消息持久性选项可用
     type: file
+    # 在“文件”持久性的情况下存储文件的路径。确保运行网关进程的用户能够创建/修改文件
     path: storage
+    # 存储空间中的最大消息大小
     bufferSize: 1000
   connection:
+    # ThingsBoard服务器主机名
     host: "${GATEWAY_HOST:demo.thingsboard.io}"
+    # ThingsBoard服务器MQTT端口（1883用于未加密连接，8883用于加密连接）
     port: 1883
+    # ThingsBoard连接重试间隔（以毫秒为单位）
     retryInterval: 3000
+    # 待处理发布消息的最大数量
     maxInFlight: 1000
     security:
-      accessToken: "${GATEWAY_ACCESS_TOKEN:your_access_token}"
-#      keystore: mqttclient.jks
-#      keystorePassword: password
-#      keystoreKeyAlias: clientalias
-#      truststore: mqttclient.jks
-#      truststorePassword: password
+      # 在基于访问令牌的身份验证的情况下填充此字段
+      accessToken: "TrePNtQF6eYTHMfiMb3B"
+      # 绝对或相对传递到密钥库。用于X.509证书验证的情况
+      #keystore: mqttclient.jks
+      #	密码库的密码
+      #keystorePassword: password
+      # 密钥库中客户端密钥的名称，密钥密码应与密码库密码相匹配
+      #keystoreKeyAlias: clientalias
+      # 绝对或相对传递给信托商，用于加密连接的情况
+      #truststore: mqttclient.jks
+      # 信托店的密码
+      #truststorePassword: password
 
 opc:
   enabled: false

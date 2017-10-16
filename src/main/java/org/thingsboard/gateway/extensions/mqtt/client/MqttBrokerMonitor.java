@@ -1,12 +1,12 @@
 /**
  * Copyright © 2017 The Thingsboard Authors
- *
+ * <p>
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
+ * <p>
+ * http://www.apache.org/licenses/LICENSE-2.0
+ * <p>
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -27,22 +27,19 @@ import org.thingsboard.gateway.extensions.mqtt.client.listener.MqttDeviceStateCh
 import org.thingsboard.gateway.extensions.mqtt.client.listener.MqttRpcResponseMessageListener;
 import org.thingsboard.gateway.extensions.mqtt.client.listener.MqttTelemetryMessageListener;
 import org.thingsboard.gateway.service.AttributesUpdateListener;
+import org.thingsboard.gateway.service.GatewayService;
 import org.thingsboard.gateway.service.RpcCommandListener;
 import org.thingsboard.gateway.service.data.*;
-import org.thingsboard.gateway.service.GatewayService;
 import org.thingsboard.server.common.data.kv.KvEntry;
 
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
+ * mqtt代理监控
  * Created by ashvayka on 24.01.17.
  */
 @Slf4j
@@ -52,14 +49,12 @@ public class MqttBrokerMonitor implements MqttCallback, AttributesUpdateListener
     private final MqttBrokerConfiguration configuration;
     private final Set<String> devices;
     private final AtomicInteger msgIdSeq = new AtomicInteger();
-
-    private MqttAsyncClient client;
-    private MqttConnectOptions clientOptions;
-    private Object connectLock = new Object();
-
     //TODO: probably use newScheduledThreadPool(int threadSize) to improve performance in heavy load cases
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     private final Map<String, ScheduledFuture<?>> deviceKeepAliveTimers = new ConcurrentHashMap<>();
+    private MqttAsyncClient client;
+    private MqttConnectOptions clientOptions;
+    private Object connectLock = new Object();
 
     public MqttBrokerMonitor(GatewayService gateway, MqttBrokerConfiguration configuration) {
         this.gateway = gateway;
@@ -67,6 +62,27 @@ public class MqttBrokerMonitor implements MqttCallback, AttributesUpdateListener
         this.devices = new HashSet<>();
     }
 
+    private static String replace(String expression, String deviceName, KvEntry attribute) {
+        return replace(expression, "", deviceName, attribute);
+    }
+
+    private static String replace(String expression, String deviceName, RpcCommandData command) {
+        return expression.replace("${deviceName}", deviceName)
+                .replace("${methodName}", command.getMethod())
+                .replace("${requestId}", Integer.toString(command.getRequestId()))
+                .replace("${params}", command.getParams());
+    }
+
+    private static String replace(String expression, String requestId, String deviceName, KvEntry attribute) {
+        return expression.replace("${deviceName}", deviceName)
+                .replace("${requestId}", requestId)
+                .replace("${attributeKey}", attribute.getKey())
+                .replace("${attributeValue}", attribute.getValueAsString());
+    }
+
+    /**
+     * 连接
+     */
     public void connect() {
         try {
             client = new MqttAsyncClient((configuration.isSsl() ? "ssl" : "tcp") + "://" + configuration.getHost() + ":" + configuration.getPort(),
@@ -109,6 +125,9 @@ public class MqttBrokerMonitor implements MqttCallback, AttributesUpdateListener
         scheduler.shutdownNow();
     }
 
+    /**
+     * 检查连接
+     */
     private void checkConnection() {
         if (!client.isConnected()) {
             synchronized (connectLock) {
@@ -179,6 +198,11 @@ public class MqttBrokerMonitor implements MqttCallback, AttributesUpdateListener
         cleanUpKeepAliveTimes(deviceName);
     }
 
+    /**
+     * 设备数据
+     *
+     * @param data
+     */
     private void onDeviceData(List<DeviceData> data) {
         for (DeviceData dd : data) {
             if (devices.add(dd.getName())) {
@@ -205,10 +229,20 @@ public class MqttBrokerMonitor implements MqttCallback, AttributesUpdateListener
         }
     }
 
+    /**
+     * 关于属性更新的请求
+     *
+     * @param attributeRequest
+     */
     private void onAttributeRequest(AttributeRequest attributeRequest) {
         gateway.onDeviceAttributeRequest(attributeRequest, this::onAttributeResponse);
     }
 
+    /**
+     * 关于属性更新的响应
+     *
+     * @param response
+     */
     private void onAttributeResponse(AttributeResponse response) {
         if (response.getData().isPresent()) {
             KvEntry attribute = response.getData().get();
@@ -241,6 +275,12 @@ public class MqttBrokerMonitor implements MqttCallback, AttributesUpdateListener
         deviceKeepAliveTimers.put(dd.getName(), f);
     }
 
+    /**
+     * 关于属性更新
+     *
+     * @param deviceName
+     * @param attributes
+     */
     @Override
     public void onAttributesUpdated(String deviceName, List<KvEntry> attributes) {
         List<AttributeUpdatesMapping> mappings = configuration.getAttributeUpdates().stream()
@@ -258,6 +298,12 @@ public class MqttBrokerMonitor implements MqttCallback, AttributesUpdateListener
         }
     }
 
+    /**
+     * 关于RPC命令
+     *
+     * @param deviceName
+     * @param command
+     */
     @Override
     public void onRpcCommand(String deviceName, RpcCommandData command) {
         int requestId = command.getRequestId();
@@ -291,12 +337,25 @@ public class MqttBrokerMonitor implements MqttCallback, AttributesUpdateListener
         });
     }
 
+    /**
+     * 关于RPC命令响应
+     *
+     * @param topic
+     * @param rpcResponse
+     */
     private void onRpcCommandResponse(String topic, RpcCommandResponse rpcResponse) {
         log.info("[{}] Un-subscribe from RPC response topic [{}]", rpcResponse.getDeviceName(), topic);
         gateway.onDeviceRpcResponse(rpcResponse);
         unsubscribe(rpcResponse.getDeviceName(), rpcResponse.getRequestId(), topic);
     }
 
+    /**
+     * 退订topic
+     *
+     * @param deviceName
+     * @param requestId
+     * @param topic
+     */
     private void unsubscribe(String deviceName, int requestId, String topic) {
         try {
             client.unsubscribe(topic);
@@ -323,24 +382,11 @@ public class MqttBrokerMonitor implements MqttCallback, AttributesUpdateListener
         }
     }
 
-    private static String replace(String expression, String deviceName, KvEntry attribute) {
-        return replace(expression, "", deviceName, attribute);
-    }
-
-    private static String replace(String expression, String deviceName, RpcCommandData command) {
-        return expression.replace("${deviceName}", deviceName)
-                .replace("${methodName}", command.getMethod())
-                .replace("${requestId}", Integer.toString(command.getRequestId()))
-                .replace("${params}", command.getParams());
-    }
-
-    private static String replace(String expression, String requestId, String deviceName, KvEntry attribute) {
-        return expression.replace("${deviceName}", deviceName)
-                .replace("${requestId}", requestId)
-                .replace("${attributeKey}", attribute.getKey())
-                .replace("${attributeValue}", attribute.getValueAsString());
-    }
-
+    /**
+     * 连接丢失
+     *
+     * @param cause
+     */
     @Override
     public void connectionLost(Throwable cause) {
         log.warn("[{}:{}] MQTT broker connection lost!", configuration.getHost(), configuration.getPort());
@@ -348,11 +394,23 @@ public class MqttBrokerMonitor implements MqttCallback, AttributesUpdateListener
         checkConnection();
     }
 
+    /**
+     * 消息到达
+     *
+     * @param topic
+     * @param message
+     * @throws Exception
+     */
     @Override
     public void messageArrived(String topic, MqttMessage message) throws Exception {
 
     }
 
+    /**
+     * 交付完成
+     *
+     * @param token
+     */
     @Override
     public void deliveryComplete(IMqttDeliveryToken token) {
     }

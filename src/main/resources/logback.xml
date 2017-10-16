@@ -23,10 +23,10 @@
             <Pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</Pattern>
         </layout>
     </appender>
-
-    <logger name="org.thingsboard" level="INFO" />
-    <logger name="org.eclipse.milo" level="INFO" />
-    <logger name="org.eclipse.paho" level="INFO" />
+    <!--最重要的记录器列在下面。支持的日志级别：TRACE，DEBUG，INFO，WARN，ERROR-->
+    <logger name="org.thingsboard" level="INFO"/>
+    <logger name="org.eclipse.milo" level="INFO"/>
+    <logger name="org.eclipse.paho" level="INFO"/>
 
     <root level="INFO">
         <appender-ref ref="STDOUT"/>
